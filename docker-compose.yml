@@ -1,0 +1,41 @@
+services: 
+  db:
+    image: mysql:8.0
+    container_name: motor_scale_system_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: motor_scale_system_db
+      MYSQL_USER: motor_scale_system_user
+      MYSQL_PASSWORD: system_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+
+  app:
+    build: .
+    container_name: motor_scale_system_app
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: motor_scale_system_user
+      DB_PASSWORD: system_password
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: motor_scale_system_db
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+
+volumes:
+  db_data:
+      

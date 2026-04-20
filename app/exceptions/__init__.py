@@ -1,0 +1,4 @@
+from app.exceptions.fisioterapeutaNaoEncontradoError import FisioterapeutaNotFoundError
+from app.exceptions.escalaNaoEncontradaError import EscalaNaoEncontradaError
+from app.exceptions.itemEscalaNaoEncontradoError import ItemEscalaNaoEncontradoError
+from app.exceptions.pontuacaoInvalidaError import PontuacaoInvalidaError

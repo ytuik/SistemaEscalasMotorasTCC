@@ -1,0 +1,2 @@
+from paciente_service import criar_paciente, obter_paciente_por_id, obter_paciente_por_nome_data_nascimento
+from avaliacao_service import registrar_avaliacao
