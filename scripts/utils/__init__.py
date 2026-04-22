@@ -1,0 +1,1 @@
+from escalas import get_escalas
