@@ -6,13 +6,6 @@ from datetime import date
 from sqlalchemy.orm import Session
 from app.models.paciente import Paciente
 
-
-def criar_paciente(session: Session, nome: str, data_nascimento: date, data_cadastro: date) -> Paciente:
-    paciente = Paciente(nome=nome, data_nascimento=data_nascimento, data_cadastro=data_cadastro)
-    session.add(paciente)
-    session.commit()
-    return paciente
-
 def obter_paciente_por_id(
     session: Session,
     paciente_id: int

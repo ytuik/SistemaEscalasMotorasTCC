@@ -23,77 +23,77 @@ from app.models.fisioterapeuta import Fisioterapeuta
 from app.services.paciente_service import obter_ou_criar_paciente
 
 
-
-
-"""
-Registra uma avaliação completa para um paciente.
-
-Se o paciente ainda não existir no banco (identificado por nome +
-data de nascimento), ele é criado automaticamente — pois o paciente
-só é cadastrado no momento da primeira avaliação.
-
-Parâmetros
-----------
-session : Session
-    Sessão SQLAlchemy ativa.
-nome_paciente : str
-    Nome completo do paciente.
-data_nascimento : date
-    Data de nascimento do paciente.
-fisioterapeuta_id : int
-    ID do fisioterapeuta que conduz a avaliação.
-data_avaliacao : date
-    Data em que a avaliação foi realizada.
-observacoes : str, opcional
-    Observações clínicas livres da sessão.
-escalas_respostas : list[dict]
-    Lista de escalas aplicadas. Cada item deve ter o formato:
-    {
-        "escala_nome": "Escala de Equilíbrio de Berg",
-        "respostas": {1: 3, 2: 4, 3: 2, ...}  # {numero_item: pontuacao}
-    }
-
-Retorna
--------
-Avaliacao
-    Objeto da avaliação criada com todas as aplicações e respostas.
-"""
 def registrar_avaliacao(
     session: Session,
     *,
     nome_paciente: str,
     data_nascimento: date,
-    fisioterapeuta_id: str,
+    fisioterapeuta_id: int,
     data_avaliacao: date,
     observacoes: str | None = None,
     escalas_respostas: list[dict]
     ) -> Avaliacao:
+
+    """
+    Registra uma avaliação completa para um paciente.
+
+    Se o paciente ainda não existir no banco (identificado por nome +
+    data de nascimento), ele é criado automaticamente — pois o paciente
+    só é cadastrado no momento da primeira avaliação.
+
+    Parâmetros
+    ----------
+    session : Session
+        Sessão SQLAlchemy ativa.
+    nome_paciente : str
+        Nome completo do paciente.
+    data_nascimento : date
+        Data de nascimento do paciente.
+    fisioterapeuta_id : int
+        ID do fisioterapeuta que conduz a avaliação.
+    data_avaliacao : date
+        Data em que a avaliação foi realizada.
+    observacoes : str, opcional
+        Observações clínicas livres da sessão.
+    escalas_respostas : list[dict]
+        Lista de escalas aplicadas. Cada item deve ter o formato:
+        {
+            "escala_nome": "Escala de Equilíbrio de Berg",
+            "respostas": {1: 3, 2: 4, 3: 2, ...}  # {numero_item: pontuacao}
+        }
+
+    Retorna
+    -------
+    Avaliacao
+        Objeto da avaliação criada com todas as aplicações e respostas.
+    """
+
+    #Busca fisioterapeuta existente ou lança erro se não encontrado
+    fisioterapeuta = session.get(Fisioterapeuta, fisioterapeuta_id)
+    if not fisioterapeuta:
+        raise FisioterapeutaNaoEncontradoError(fisioterapeuta_id)
     
-        #Busca fisioterapeuta existente ou lança erro se não encontrado
-        fisioterapeuta = session.query(Fisioterapeuta).get(fisioterapeuta_id)
-        if not fisioterapeuta:
-            raise FisioterapeutaNaoEncontradoError(fisioterapeuta_id)
-        
-        paciente = obter_ou_criar_paciente(session, nome_paciente, data_nascimento, data_avaliacao)
-        
-        avaliacao = Avaliacao(
-            id_fisioterapeuta=fisioterapeuta_id,
-            id_paciente=paciente.id,
-            data=data_avaliacao,
-            observacoes=observacoes or None
-        )
-        session.add(avaliacao)
-        session.flush() # Garante que a avaliação tenha um ID para relacionamentos futuros
-        
-        for bloco_respostas in escalas_respostas:
-            _registrar_aplicacao_escala(session, avaliacao, bloco_respostas)
-        
-        session.commit()
-        return avaliacao
+    paciente = obter_ou_criar_paciente(session, nome_paciente, data_nascimento, data_avaliacao)
+    
+    avaliacao = Avaliacao(
+        id_fisioterapeuta=fisioterapeuta_id,
+        id_paciente=paciente.id,
+        data=data_avaliacao,
+        observacoes=observacoes
+    )
+    session.add(avaliacao)
+    session.flush() # Garante que a avaliação tenha um ID para relacionamentos futuros
+    
+    for bloco_respostas in escalas_respostas:
+        _registrar_aplicacao_escala(session, avaliacao, bloco_respostas)
+    
+    session.commit()
+    return avaliacao
         
         
-"""Registra a aplicação de uma escala em uma avaliação, incluindo as respostas dos itens."""
 def _registrar_aplicacao_escala(session: Session, avaliacao: Avaliacao, bloco_respostas: dict):
+    """Registra a aplicação de uma escala em uma avaliação, incluindo as respostas dos itens."""
+
     nome_escala = bloco_respostas["escala_nome"]
     respostas = bloco_respostas["respostas"]
     
