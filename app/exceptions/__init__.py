@@ -1,4 +1,6 @@
-from app.exceptions.fisioterapeutaNaoEncontradoError import FisioterapeutaNotFoundError
+from app.exceptions.fisioterapeutaNaoEncontradoError import FisioterapeutaNaoEncontradoError
 from app.exceptions.escalaNaoEncontradaError import EscalaNaoEncontradaError
 from app.exceptions.itemEscalaNaoEncontradoError import ItemEscalaNaoEncontradoError
 from app.exceptions.pontuacaoInvalidaError import PontuacaoInvalidaError
+from app.exceptions.planilhaNaoEncontradaError import PlanilhaNaoEncontradaError
+from app.exceptions.planilhaInvalidaError import PlanilhaInvalidaError
