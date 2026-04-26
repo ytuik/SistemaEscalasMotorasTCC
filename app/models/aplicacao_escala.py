@@ -8,7 +8,7 @@ class AplicacaoEscala(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     id_avaliacao = Column(Integer, ForeignKey('avaliacao.id'), nullable=False)
     id_escala = Column(Integer, ForeignKey('escala.id'), nullable=False)
-    pontuacao_total = Column(Integer, nullable=False)
+    pontuacao_total = Column(Integer, nullable=False, default=0)
     
     avaliacao = relationship("Avaliacao", back_populates="aplicacoes_escala")
     escala = relationship("Escala", back_populates="aplicacoes_escala")

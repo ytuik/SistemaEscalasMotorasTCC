@@ -10,7 +10,7 @@ class RespostaItem(Base):
     id_item_escala = Column(Integer, ForeignKey('item_escala.id'), nullable=False)
     pontuacao = Column(Integer, nullable=False) # Para escalas que usam tempo o valor da pontuação será salvo em segundos
     
-    aplicacao = relationship("AplicacaoEscala", back_populates="respostas_item")
+    aplicacao_escala = relationship("AplicacaoEscala", back_populates="respostas")
     item_escala = relationship("ItemEscala", back_populates="respostas_item")
     
     def __repr__(self):
