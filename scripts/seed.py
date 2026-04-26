@@ -16,6 +16,7 @@ Escalas a ser incluidas:
 
 from app.database import Base, engine, SessionLocal
 import app.models
+from scripts.utils.escalas import get_escalas
 from app.models import Escala, ItemEscala
 
 """
@@ -23,7 +24,6 @@ Variavel que armazena as escalas a serem inseridas no banco de dados.
 Cada escala é representada por um dicionário contendo seu nome, descrição, pontuação máxima, pontuação de corte e uma lista de itens
 (cada item é uma tupla com número, descrição e pontuação máxima).
 """
-from utils.escalas import get_escalas
 ESCALAS = get_escalas()
 
 def popular_escalas(session):

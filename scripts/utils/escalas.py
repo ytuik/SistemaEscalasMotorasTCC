@@ -187,3 +187,4 @@ def get_escalas():
         "formula_total": False
     },
 ]
+    return ESCALAS

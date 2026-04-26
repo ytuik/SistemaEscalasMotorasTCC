@@ -1,1 +1,1 @@
-from escalas import get_escalas
+from .escalas import get_escalas
