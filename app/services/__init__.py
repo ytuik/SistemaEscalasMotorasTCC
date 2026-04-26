@@ -1,2 +1,4 @@
-from paciente_service import criar_paciente, obter_paciente_por_id, obter_paciente_por_nome_data_nascimento
-from avaliacao_service import registrar_avaliacao
+from .paciente_service import obter_paciente_por_id, obter_paciente_por_nome_data_nascimento, obter_ou_criar_paciente
+from .avaliacao_service import registrar_avaliacao
+from .fisioterapeuta_service import obter_fisioterapeuta_por_crefito
+from .escalas_service import obter_escalas

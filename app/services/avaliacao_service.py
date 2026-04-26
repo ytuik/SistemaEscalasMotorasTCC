@@ -15,9 +15,12 @@ Pendente:
 
 from datetime import date
 from sqlalchemy.orm import Session
-from app.exceptions import FisioterapeutaNaoEncontradoError, EscalaNaoEncontradaError
-from app.exceptions.itemEscalaNaoEncontradoError import ItemEscalaNaoEncontradoError
-from app.exceptions.pontuacaoInvalidaError import PontuacaoInvalidaError
+from app.exceptions import (
+    FisioterapeutaNaoEncontradoError,
+    EscalaNaoEncontradaError,
+    ItemEscalaNaoEncontradoError,
+    PontuacaoInvalidaError,
+)
 from app.models import Escala, ItemEscala, Avaliacao, RespostaItem, AplicacaoEscala
 from app.models.fisioterapeuta import Fisioterapeuta
 from app.services.paciente_service import obter_ou_criar_paciente
@@ -109,7 +112,7 @@ def _registrar_aplicacao_escala(session: Session, avaliacao: Avaliacao, bloco_re
     session.add(aplicacao)
     session.flush() # Garante que a aplicação tenha um ID para relacionamentos futuros
     
-    itens_por_numero = {item.numero: item for item in escala.itens}
+    itens_por_numero = {item.numero_item: item for item in escala.itens}
     
     for numero_item, pontuacao in respostas.items():
         numero_item = int(numero_item) # Garantir que seja inteiro

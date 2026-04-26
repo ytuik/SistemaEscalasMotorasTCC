@@ -68,9 +68,8 @@ def abrir_pasta_templates(caminho_arquivo: Path):
         print(f"Não foi possível abrir a pasta de templates: {e}")
         print(f"Por favor, acesse manualmente: {pasta}")
         
-def iniciar_avaliacao_xlsx(nome_paciente: str, data_avaliacao: date| None = None) -> Path:
-    
+def iniciar_avaliacao_xlsx(nome_paciente: str, data_avaliacao: date | None = None) -> Path:
     """Inicia uma nova avaliação criando uma cópia do template e abre a pasta de avaliações."""
     arquivo = criar_copia_template_avaliacao(nome_paciente, data_avaliacao)
-    print(f"Avaliação criada: {arquivo}")
     abrir_pasta_templates(arquivo)
+    return arquivo
