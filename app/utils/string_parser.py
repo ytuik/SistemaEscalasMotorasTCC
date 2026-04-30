@@ -1,18 +1,12 @@
 from datetime import date
+from dateutil import parser as dtparser
 
+
+def calcular_idade(data_nascimento: date) -> int:
+    """Calcula a idade do paciente com base na data de nascimento."""
+    hoje = date.today()
+    idade = hoje.year - data_nascimento.year - ((hoje.month, hoje.day) < (data_nascimento.month, data_nascimento.day))
+    return idade
 
 def parse_data(valor: str) -> date:
-    """
-    Converte uma string de data para objeto date.
-    Aceita DD-MM-AAAA, DD/MM/AAAA, DD/MM/AA,  AAAA-MM-DD e AAAA/MM/DD para ser tolerante a variações.
-    """
-    valor = valor.strip()
-
-    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d/%m/%y" , "%Y-%m-%d", "%Y/%m/%d"):
-        try:
-            from datetime import datetime
-            return datetime.strptime(valor, fmt).date()
-        except ValueError:
-            continue
-
-    raise ValueError(f"Formato de data não reconhecido: '{valor}'")
+    return dtparser.parse(valor, dayfirst=True).date()
