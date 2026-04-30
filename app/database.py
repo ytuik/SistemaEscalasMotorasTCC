@@ -13,7 +13,7 @@ DB_NAME = os.getenv('DB_NAME', "motor_scale_system_db")
 
 DATABASE_URL = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=os.getenv("DB_ECHO", "false") == "true")
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
