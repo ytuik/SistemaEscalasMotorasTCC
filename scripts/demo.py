@@ -9,11 +9,15 @@ Suporta:
 
 import sys
 from datetime import date
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import engine, Base, SessionLocal
 from app.models import Fisioterapeuta, Paciente, Escala, Avaliacao
+from app.models.aplicacao_escala import AplicacaoEscala
+from app.models.resposta_item import RespostaItem
 from app.services.avaliacao_service import registrar_avaliacao
+from app.services.escalas_service import obter_escalas
+from app.services.paciente_service import historico_escala, resumo_executivo
 from app.services.template_service import iniciar_avaliacao_xlsx
 from app.services.planilha_service import importar_planilha_avaliacao
 from app.exceptions import (
@@ -199,7 +203,101 @@ def perfil_paciente(session: Session):
                 print(f"      item {r.item_escala.numero_item:2}: {r.pontuacao}{lim}"
                       f"  — {r.item_escala.descricao}")
     print()
+    
+def perfil_executivo_paciente(session: Session): 
+        print("\n── Perfil do paciente ───────────────────────────────────────────")
+        pacientes = session.query(Paciente).order_by(Paciente.nome).all()
+        if not pacientes:
+            print("  Nenhum paciente cadastrado.\n")
+            return
 
+        for p in pacientes:
+            print(f"  [{p.id}] {p.nome}  —  nasc. {p.data_nascimento}")
+        pid = int(input("  ID do paciente: ").strip())
+
+        paciente = session.get(Paciente, pid)
+        if not paciente:
+            print("  Paciente não encontrado.\n")
+            return
+        
+        resumo = resumo_executivo(session, paciente.id)
+        print(f"\n Paciente : {resumo.paciente_nome}")
+        print(f" Nascimento: {paciente.data_nascimento}")
+        print(f" Quantidade de avaliações: {resumo.total_avaliacoes}")
+        print(f" Ultima Avaliação: {resumo.data_ultima_avaliacao}")
+        
+        print(f"\n Aplicações:")
+        for aplicacao in resumo.ultima_pontuacao_por_escala:
+            print(f"-----------------------------------")
+            print(f" {aplicacao.escala_nome}")
+            print(f" pontuação total: {aplicacao.pontuacao_total}")
+            print(f" percentual: {str(aplicacao.percentual) or "Nao aplicavel"}")
+            print(f" esta abaixo da nota de corte: {aplicacao.abaixo_do_corte}")
+            
+            print(f"\n Respostas:")
+            for resposta in aplicacao.respostas:
+                print(f" Descriçao: {resposta.descricao}")
+                print(f" Pontuaçao: {resposta.pontuacao}")
+        
+        print(f"\n Alertas:")
+        for alerta in resumo.alertas:
+            print(f" Escala: {alerta.escala_nome}")
+            print(f" Pontuação: {alerta.pontuacao}")
+            print(f" Pontuação Corte: {alerta.pontuacao_corte}")
+            print(f" Data da Avaliação: {alerta.data_avaliacao}")
+            
+    
+def historico_paciente(session: Session):
+    pacientes = session.query(Paciente).order_by(Paciente.nome).all()
+    if not pacientes:
+        print("  Nenhum paciente cadastrado.\n")
+        return
+
+    for p in pacientes:
+        print(f"  [{p.id}] {p.nome}  —  nasc. {p.data_nascimento}")
+    pid = int(input("  ID do paciente: ").strip())
+
+    paciente = (
+    session.query(Paciente)
+    .options(
+        joinedload(Paciente.avaliacoes)
+        .joinedload(Avaliacao.aplicacoes_escala)
+        .joinedload(AplicacaoEscala.respostas)
+        .joinedload(RespostaItem.item_escala)
+    )
+    .filter_by(id=pid)
+    .first()
+)
+    if not paciente:
+        print("  Paciente não encontrado.\n")
+        return
+    
+    escalas = obter_escalas(session)
+    if not escalas:
+        return
+    for escala in escalas:
+        print(f"  [{escala.id}] {escala.nome}")
+    escala_id = int(input("Id da Escala").strip())
+    
+    
+    historico = historico_escala(session=session, id_paciente=pid, id_escala=escala_id)
+ 
+        
+    print(f"\n Paciente : {historico.paciente_nome}")
+    print(f" Escala: {historico.escala_nome}")
+    print(f" Pontuacao Corte: {historico.pontuacao_corte}")
+    print(f" Variacao Total: {historico.variacao_total}")
+    print(f" Tendencia: {historico.tendencia}")
+    
+    for ponto in historico.pontos:
+        print(f" ")
+        print(f"{ponto.data}")
+        print(f"{ponto.avaliacao_id}")
+        print(f"{ponto.pontuacao}")
+        print(f"{ponto.pontuacao_maxima}")
+        print(f"{ponto.pontuacao_corte}")
+        print(f"{ponto.abaixo_do_corte}")
+        print(f"{ponto.fisioterapeuta}")
 
 def _exibir_resultado_avaliacao(session: Session, avaliacao_id: int):
     av = session.get(Avaliacao,avaliacao_id)
@@ -260,6 +358,8 @@ def menu():
         ("4", "Registrar avaliação — importar XLSX",         registrar_csv),
         ("5", "Iniciar avaliação — abrir planilha Excel",    iniciar_avaliacao_planilha),
         ("6", "Ver perfil de um paciente",                   perfil_paciente),
+        ("7", "Perfil Executivo de um paciente",             perfil_executivo_paciente),
+        ("8", "Historico Paciente/Escala",                   historico_paciente),
         ("0", "Sair",                                        None),
     ]
 
