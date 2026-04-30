@@ -4,3 +4,4 @@ from app.exceptions.itemEscalaNaoEncontradoError import ItemEscalaNaoEncontradoE
 from app.exceptions.pontuacaoInvalidaError import PontuacaoInvalidaError
 from app.exceptions.planilhaNaoEncontradaError import PlanilhaNaoEncontradaError
 from app.exceptions.planilhaInvalidaError import PlanilhaInvalidaError
+from app.exceptions.pacienteNaoEncontradoError import PacienteNaoEncontradoError
