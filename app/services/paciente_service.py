@@ -3,7 +3,8 @@ Paciente_Service - Responsável por toda a lógica relacionada a pacientes, incl
 """
 
 from datetime import date
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload, contains_eager
 from app.exceptions import EscalaNaoEncontradaError, PacienteNaoEncontradoError
 from app.models.aplicacao_escala import AplicacaoEscala
 from app.models.avaliacao import Avaliacao
@@ -21,24 +22,23 @@ from app.services.escalas_service import obter_escala_por_id
 from app.utils.string_parser import calcular_idade
 
 
-def obter_paciente_por_id(
-    session: Session,
-    paciente_id: int
-) -> Paciente | None:
-    return session.query(Paciente).filter_by(id=paciente_id).first()
+def obter_paciente_por_id(session: Session, paciente_id: int) -> Paciente | None:
+    return session.get(Paciente, paciente_id)
+
+def obter_pacientes_por_nome(session: Session, nome: str) -> list[Paciente]:
+    return session.query(Paciente).filter(Paciente.nome.ilike(f"%{nome}%")).all()
 
 def obter_paciente_por_nome_data_nascimento(
-    session: Session,
-    nome: str,
-    data_nascimento: date
+    session: Session, nome: str, data_nascimento: date
 ) -> Paciente | None:
-    return session.query(Paciente).filter_by(nome=nome, data_nascimento=data_nascimento).first()
+    stmt = select(Paciente).where(
+        Paciente.nome == nome, 
+        Paciente.data_nascimento == data_nascimento
+    )
+    return session.scalars(stmt).first()
 
 def obter_ou_criar_paciente(
-    session: Session,
-    nome: str,
-    data_nascimento: date,
-    data_cadastro: date
+    session: Session, nome: str, data_nascimento: date, data_cadastro: date
 ) -> Paciente:
     paciente = obter_paciente_por_nome_data_nascimento(session, nome, data_nascimento)
     if not paciente:
@@ -47,25 +47,16 @@ def obter_ou_criar_paciente(
         session.flush()
     return paciente
 
-def listar_pacientes(session: Session) -> list[Paciente]:
-    """Retorna uma lista de todos os pacientes cadastrados no sistema."""
-    return session.query(Paciente).order_by(Paciente.nome).all()
+def listar_pacientes(session: Session, skip: int = 0, limit: int = 100) -> list[Paciente]:
+    """Retorna uma lista de pacientes cadastrados com paginação."""
+    stmt = select(Paciente).order_by(Paciente.nome).offset(skip).limit(limit)
+    return list(session.scalars(stmt).all())
 
 def perfil_completo(session: Session, paciente_id: int) -> PerfilDTO:
     """
     Retorna o perfil completo do paciente com todas as avaliações e aplicações associadas e respostas individuais em ordem cronológica.
     """
-    paciente = (
-    session.query(Paciente)
-    .options(
-        joinedload(Paciente.avaliacoes)
-        .joinedload(Avaliacao.aplicacoes_escala)
-        .joinedload(AplicacaoEscala.respostas)
-        .joinedload(RespostaItem.item_escala)
-    )
-    .filter_by(id=paciente_id)
-    .first()
-)
+    paciente = _obter_paciente_com_avaliacoes_completas(session, paciente_id)
 
     if not paciente:
         raise PacienteNaoEncontradoError(paciente_id)
@@ -96,23 +87,28 @@ def historico_escala(
     id_paciente: int,
     id_escala: int
 ) -> HistoricoEscalaDTO:
-    """
-    Retorna a evolução de uma escala específica ao longo de todas
-    as avaliações do paciente, em ordem cronológica.
-
-    Útil para visualizar progresso ou regressão ao longo do tratamento.
-    """
-    paciente = (
-    session.query(Paciente)
-    .options(
-        joinedload(Paciente.avaliacoes)
-        .joinedload(Avaliacao.aplicacoes_escala)
-        .joinedload(AplicacaoEscala.respostas)
-        .joinedload(RespostaItem.item_escala)
+    
+    # 1. Busca otimizada: Carrega APENAS as avaliações e aplicações desta escala específica
+    stmt = (
+        select(Paciente)
+        .join(Paciente.avaliacoes)
+        .join(Avaliacao.aplicacoes_escala)
+        .join(AplicacaoEscala.respostas)
+        .join(RespostaItem.item_escala)
+        .where(
+            Paciente.id == id_paciente,
+            AplicacaoEscala.id_escala == id_escala
+        )
+        .options(
+            contains_eager(Paciente.avaliacoes)
+            .contains_eager(Avaliacao.aplicacoes_escala)
+            .contains_eager(AplicacaoEscala.respostas)
+            .contains_eager(RespostaItem.item_escala)
+        )
+        .order_by(Avaliacao.data)
     )
-    .filter_by(id=id_paciente)
-    .first()
-    )   
+    paciente = session.scalars(stmt).first()
+    
     if not paciente:
         raise PacienteNaoEncontradoError(id_paciente)
 
@@ -121,37 +117,51 @@ def historico_escala(
         raise EscalaNaoEncontradaError(id_escala)
 
     pontos = []
-    respostas = []
-    for avaliacao in sorted(paciente.avaliacoes, key=lambda a: a.data):
-        for aplicacao in avaliacao.aplicacoes_escala:
-            if aplicacao.id_escala == id_escala:
-                abaixo = (
-                    escala.pontuacao_corte is not None
-                    and aplicacao.pontuacao_total is not None
-                    and aplicacao.pontuacao_total < escala.pontuacao_corte
-                )
-                
-                if len(respostas) == 0:
-                    respostas = aplicacao.respostas
-                else:
-                    # fazer uma checagem de quais respostas mudaram desde a ultima aplicação, pois mesmo que a nota da aplicação seja a mesma (o somatorio seja igual)
-                    # as repostas podem estar diferentes, e é bom mostrar quais respostas mudaram entre cada aplicação
-                    respostas = aplicacao.respostas
-                    return
-                
-                pontos.append(PontoHistoricoDTO(
-                    data=avaliacao.data,
-                    avaliacao_id=avaliacao.id,
-                    pontuacao=aplicacao.pontuacao_total,
-                    pontuacao_maxima=escala.pontuacao_maxima,
-                    pontuacao_corte=escala.pontuacao_corte,
-                    abaixo_do_corte=abaixo,
-                    respostas_que_variaram=items_com_variacao,
-                    fisioterapeuta=avaliacao.fisioterapeuta.nome
-                ))
-            
-                
+    respostas_anteriores: dict[int, int] | None = None  
+
+    for avaliacao in paciente.avaliacoes:
+        aplicacao = avaliacao.aplicacoes_escala[0] 
         
+        abaixo = (
+            escala.pontuacao_corte is not None
+            and aplicacao.pontuacao_total is not None
+            and aplicacao.pontuacao_total < escala.pontuacao_corte
+        )
+
+        respostas_atuais = {
+            resposta.item_escala.numero_item: resposta.pontuacao
+            for resposta in aplicacao.respostas
+        }
+
+        respostas_variadas = []
+        for resposta in aplicacao.respostas:
+            numero = resposta.item_escala.numero_item
+            # É variação se for a primeira vez OU se a pontuação for diferente
+            if respostas_anteriores is None or respostas_anteriores.get(numero) != resposta.pontuacao:
+                respostas_variadas.append(resposta)
+
+        items_com_variacao = tuple(
+            RespostaItemDTO(
+                numero_item=r.item_escala.numero_item,
+                descricao=r.item_escala.descricao,
+                pontuacao=r.pontuacao,
+                pontuacao_maxima=r.item_escala.pontuacao_maxima
+            )
+            for r in sorted(respostas_variadas, key=lambda r: r.item_escala.numero_item)
+        )
+
+        pontos.append(PontoHistoricoDTO(
+            data=avaliacao.data,
+            avaliacao_id=avaliacao.id,
+            pontuacao=aplicacao.pontuacao_total,
+            pontuacao_maxima=escala.pontuacao_maxima,
+            pontuacao_corte=escala.pontuacao_corte,
+            abaixo_do_corte=abaixo,
+            respostas_que_variaram=items_com_variacao,
+            fisioterapeuta=avaliacao.fisioterapeuta.nome
+        ))
+
+        respostas_anteriores = respostas_atuais
 
     return HistoricoEscalaDTO(
         paciente_nome=paciente.nome,
@@ -160,7 +170,7 @@ def historico_escala(
         pontuacao_maxima=escala.pontuacao_maxima,
         pontos=pontos
     )
-
+    
 def resumo_executivo(session: Session, paciente_id: int) -> ResumoExecutivoDTO:
     """
     Retorna o resumo clínico do paciente:
@@ -171,17 +181,7 @@ def resumo_executivo(session: Session, paciente_id: int) -> ResumoExecutivoDTO:
     rápida e direta
     """
 
-    paciente = (
-    session.query(Paciente)
-    .options(
-        joinedload(Paciente.avaliacoes)
-        .joinedload(Avaliacao.aplicacoes_escala)
-        .joinedload(AplicacaoEscala.respostas)
-        .joinedload(RespostaItem.item_escala)
-    )
-    .filter_by(id=paciente_id)
-    .first()
-)
+    paciente = _obter_paciente_com_avaliacoes_completas(session, paciente_id)
 
     if not paciente:
         raise PacienteNaoEncontradoError(paciente_id)
@@ -241,3 +241,23 @@ def _aplicacao_to_dto(aplicacao: AplicacaoEscala) -> AplicacaoDTO:
         abaixo_do_corte=abaixo,
         respostas=respostas
     )
+    
+def _obter_paciente_com_avaliacoes_completas(session: Session, paciente_id: int) -> Paciente | None:
+    """Centraliza a busca do paciente com todos os relacionamentos necessários carregados."""
+    stmt = (
+            select(Paciente)
+            .options(
+                # Carrega avaliações, aplicações, respostas e itens
+                joinedload(Paciente.avaliacoes)
+                .joinedload(Avaliacao.aplicacoes_escala)
+                .joinedload(AplicacaoEscala.respostas)
+                .joinedload(RespostaItem.item_escala),
+                
+                # Carrega os dados da escala
+                joinedload(Paciente.avaliacoes)
+                .joinedload(Avaliacao.aplicacoes_escala)
+                .joinedload(AplicacaoEscala.escala) 
+            )
+            .where(Paciente.id == paciente_id)
+        )
+    return session.scalars(stmt).first()
