@@ -6,35 +6,27 @@ Responsabilidades:
 - Permitir cadastro via arquivo CSV e entrada manual.
 - Aplicar avaliacoes a pacientes, registrando respostas e calculando pontuacao total.
 - Fornecer resultados e interpretacoes com base nas pontuacoes calculadas.
-
-Pendente:
-- Implementar validacao de dados de entrada.
-- Conversao de nome do fisioterapeuta e nome da escala tem que ser feita antes daqui, para evitar problemas de nome duplicado.
-- Mudar para receber o id da escala ao invés do nome, para evitar problemas de nome duplicado.
 """
 
 from datetime import date
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.exceptions import (
     FisioterapeutaNaoEncontradoError,
     EscalaNaoEncontradaError,
     ItemEscalaNaoEncontradoError,
     PontuacaoInvalidaError,
 )
-from app.models import Escala, ItemEscala, Avaliacao, RespostaItem, AplicacaoEscala
+from app.models import Escala, ItemEscala, Avaliacao, RespostaItem, AplicacaoEscala, escala, paciente
+from app.models import fisioterapeuta
+from app.models.dto.aplicacao_input_dto import AplicacaoInputDTO
+from app.models.dto.nova_avaliacao_dto import NovaAvaliacaoDTO
 from app.models.fisioterapeuta import Fisioterapeuta
 from app.services.paciente_service import obter_ou_criar_paciente
 
 
 def registrar_avaliacao(
     session: Session,
-    *,
-    nome_paciente: str,
-    data_nascimento: date,
-    fisioterapeuta_id: int,
-    data_avaliacao: date,
-    observacoes: str | None = None,
-    escalas_respostas: list[dict]
+    payload: NovaAvaliacaoDTO
     ) -> Avaliacao:
 
     """
@@ -48,12 +40,8 @@ def registrar_avaliacao(
     ----------
     session : Session
         Sessão SQLAlchemy ativa.
-    nome_paciente : str
-        Nome completo do paciente.
-    data_nascimento : date
-        Data de nascimento do paciente.
-    fisioterapeuta_id : int
-        ID do fisioterapeuta que conduz a avaliação.
+    payload : NovaAvaliacaoDTO
+        Dados da nova avaliação a ser registrada.
     data_avaliacao : date
         Data em que a avaliação foi realizada.
     observacoes : str, opcional
@@ -71,65 +59,57 @@ def registrar_avaliacao(
         Objeto da avaliação criada com todas as aplicações e respostas.
     """
 
-    #Busca fisioterapeuta existente ou lança erro se não encontrado
-    fisioterapeuta = session.get(Fisioterapeuta, fisioterapeuta_id)
+    # Busca fisioterapeuta existente ou lança erro se não encontrado
+    fisioterapeuta = session.get(Fisioterapeuta, payload.fisioterapeuta_id)
     if not fisioterapeuta:
-        raise FisioterapeutaNaoEncontradoError(fisioterapeuta_id)
+        raise FisioterapeutaNaoEncontradoError(payload.fisioterapeuta_id)
     
-    paciente = obter_ou_criar_paciente(session, nome_paciente, data_nascimento, data_avaliacao)
+    paciente = obter_ou_criar_paciente(session, payload.nome_paciente, payload.data_nascimento, payload.data_avaliacao)
     
     avaliacao = Avaliacao(
-        id_fisioterapeuta=fisioterapeuta_id,
-        id_paciente=paciente.id,
-        data=data_avaliacao,
-        observacoes=observacoes
+        paciente=paciente,
+        fisioterapeuta=fisioterapeuta,
+        data=payload.data_avaliacao,
+        observacoes=payload.observacoes
     )
-    session.add(avaliacao)
-    session.flush() # Garante que a avaliação tenha um ID para relacionamentos futuros
     
-    for bloco_respostas in escalas_respostas:
+    
+    for bloco_respostas in payload.aplicacoes:
         _registrar_aplicacao_escala(session, avaliacao, bloco_respostas)
     
-    session.commit()
+    session.add(avaliacao)
     return avaliacao
         
         
-def _registrar_aplicacao_escala(session: Session, avaliacao: Avaliacao, bloco_respostas: dict):
+def _registrar_aplicacao_escala(session: Session, avaliacao: Avaliacao, aplicacao_dto: AplicacaoInputDTO):
     """Registra a aplicação de uma escala em uma avaliação, incluindo as respostas dos itens."""
-
-    nome_escala = bloco_respostas["escala_nome"]
-    respostas = bloco_respostas["respostas"]
     
-    escala = session.query(Escala).filter_by(nome=nome_escala).first()
+    escala = session.query(Escala).options(
+        joinedload(Escala.itens)
+    ).filter_by(id=aplicacao_dto.id_escala).first()
     if not escala:
-        raise EscalaNaoEncontradaError(nome_escala)
+        raise EscalaNaoEncontradaError(aplicacao_dto.id_escala)
     
-    aplicacao = AplicacaoEscala(
-        id_avaliacao=avaliacao.id,
-        id_escala=escala.id
-    )
-    
-    session.add(aplicacao)
-    session.flush() # Garante que a aplicação tenha um ID para relacionamentos futuros
+    aplicacao = AplicacaoEscala(escala=escala)
+    pontuacao_soma = 0
     
     itens_por_numero = {item.numero_item: item for item in escala.itens}
     
-    for numero_item, pontuacao in respostas.items():
-        numero_item = int(numero_item) # Garantir que seja inteiro
-        item = itens_por_numero.get(numero_item)
+    for resposta in aplicacao_dto.respostas:
+        item = itens_por_numero.get(resposta.numero_item)
         
         if not item:
-            raise ItemEscalaNaoEncontradoError(numero_item, nome_escala)
+            raise ItemEscalaNaoEncontradoError(resposta.numero_item, escala.nome)
         
-        if (item.pontuacao_maxima is not None and not (0 <= pontuacao <= item.pontuacao_maxima)):
-            raise PontuacaoInvalidaError(item.descricao, pontuacao, item.pontuacao_maxima)
+        if (item.pontuacao_maxima is not None and not (0 <= resposta.pontuacao <= item.pontuacao_maxima)):
+            raise PontuacaoInvalidaError(item.descricao, resposta.pontuacao, item.pontuacao_maxima)
         
-        session.add(RespostaItem(
-            id_aplicacao_escala=aplicacao.id,
-            id_item_escala=item.id,
-            pontuacao=int(pontuacao)
-        ))
+        resposta_obj = RespostaItem(
+            item_escala=item,
+            pontuacao=int(resposta.pontuacao)
+        )
+        aplicacao.respostas.append(resposta_obj)
+        pontuacao_soma += resposta.pontuacao
         
-    session.flush() # Garante que as respostas sejam salvas para o cálculo da pontuação total
-    aplicacao.calcular_pontuacao_total()
-    session.flush() # Salva a pontuação total calculada
+    aplicacao.pontuacao_total = pontuacao_soma
+    avaliacao.aplicacoes_escala.append(aplicacao)
