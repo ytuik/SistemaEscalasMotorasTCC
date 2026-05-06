@@ -25,10 +25,15 @@ Abas específicas de cada escala:
     — o fisioterapeuta simplesmente deixa em branco as escalas não aplicadas.
 """
 
+import logging
+
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 from app.exceptions import PlanilhaInvalidaError, PlanilhaNaoEncontradaError
 from app.models import Escala
+from app.models.dto.aplicacao_input_dto import AplicacaoInputDTO
+from app.models.dto.nova_avaliacao_dto import NovaAvaliacaoDTO
+from app.models.dto.resposta_input_dto import RespostaInputDTO
 from app.services import obter_fisioterapeuta_por_crefito, registrar_avaliacao, obter_escalas
 from app.utils.string_parser import parse_data
 
@@ -39,6 +44,8 @@ LINHA_FISIOTERAPEUTA_CREFITO = 6
 LINHA_DATA_AVALIACAO = 7
 LINHA_OBSERVACOES = 8
 COLUNA_VALOR = 3
+
+logger = logging.getLogger(__name__)
 
 def importar_planilha_avaliacao(session: Session, caminho_arquivo: str) -> dict:
     """Importa avaliações a partir de um arquivo XLSX e as registra no banco de dados.
@@ -58,48 +65,46 @@ def importar_planilha_avaliacao(session: Session, caminho_arquivo: str) -> dict:
         Um dicionário contendo o resultado da importação, incluindo o número de avaliações importadas e detalhes de cada avaliação.
 
     """
+    workbook = None
     # Carregar o arquivo XLSX usando OpenPyXL
     try:
         workbook = load_workbook(filename=caminho_arquivo, data_only=True)
-    except FileNotFoundError:
-        raise PlanilhaNaoEncontradaError(f"Arquivo não encontrado: {caminho_arquivo}")
-    except Exception as e:
-        raise Exception(f"Erro ao carregar o arquivo: {e}")
     
-    if ABA_INFO not in workbook.sheetnames:
-        raise PlanilhaInvalidaError(f"Aba '{ABA_INFO}' não encontrada na planilha.")
-    
-    info = _ler_aba_informacoes(workbook[ABA_INFO], caminho_arquivo)
-    
-    fisioterapeuta = obter_fisioterapeuta_por_crefito(session, info["fisioterapeuta_crefito"])
-    if not fisioterapeuta:
-        raise PlanilhaInvalidaError(f"Fisioterapeuta com CREFITO '{info['fisioterapeuta_crefito']}' não encontrado no banco de dados.")
-    
-    escalas_respostas = _ler_abas_escalas(workbook, session)
-    
-    if not escalas_respostas:
-        raise PlanilhaInvalidaError(f"Nenhuma escala com respostas preenchidas encontrada na planilha '{caminho_arquivo}'.")
-    
-    try:
-        avaliacao = registrar_avaliacao(
-            session=session,
+        if ABA_INFO not in workbook.sheetnames:
+            raise PlanilhaInvalidaError(f"Aba '{ABA_INFO}' não encontrada na planilha.")
+        
+        info = _ler_aba_informacoes(workbook[ABA_INFO], caminho_arquivo)
+        
+        fisioterapeuta = obter_fisioterapeuta_por_crefito(session, info["fisioterapeuta_crefito"])
+        if not fisioterapeuta:
+            raise PlanilhaInvalidaError(f"Fisioterapeuta com CREFITO '{info['fisioterapeuta_crefito']}' não encontrado no banco de dados.")
+        
+        escalas_respostas = _ler_abas_escalas(workbook, session)
+        
+        if not escalas_respostas:
+            raise PlanilhaInvalidaError(f"Nenhuma escala com respostas preenchidas encontrada na planilha '{caminho_arquivo}'.")
+        
+        payload = NovaAvaliacaoDTO(
             nome_paciente=info["paciente_nome"],
             data_nascimento=info["data_nascimento"],
             fisioterapeuta_id=fisioterapeuta.id,
             data_avaliacao=info["data_avaliacao"],
             observacoes=info["observacoes"],
-            escalas_respostas=escalas_respostas
+            aplicacoes=escalas_respostas
         )
-        
+        avaliacao = registrar_avaliacao(session=session, payload=payload)
+            
         return {
             "status": "ok",
             "paciente": info["paciente_nome"],
             "data_avaliacao": info["data_avaliacao"].isoformat(),
             "avaliacao_id": avaliacao.id,
-            "escalas_importadas": [escala["escala_nome"] for escala in escalas_respostas],
+            "escalas_importadas": [escala.id_escala for escala in escalas_respostas],
             "mensagem": None
         }
-        
+            
+    except FileNotFoundError:
+        raise PlanilhaNaoEncontradaError(f"Arquivo não encontrado: {caminho_arquivo}")
     except (PlanilhaInvalidaError, PlanilhaNaoEncontradaError, Exception) as e:
         return {
             "status": "erro",
@@ -107,8 +112,17 @@ def importar_planilha_avaliacao(session: Session, caminho_arquivo: str) -> dict:
             "data_avaliacao": info["data_avaliacao"].isoformat(),
             "mensagem": str(e)
         }
-    
-def _ler_aba_informacoes(workbook, filepath: str):
+    except Exception as e:
+        logger.error(f"Erro inesperado ao importar planilha {caminho_arquivo}: {e}", exc_info=True)
+        return {
+            "status": "erro",
+            "mensagem": f"Erro interno ao processar a planilha: {str(e)}"
+        }
+    finally:
+        if workbook:
+            workbook.close()
+        
+def _ler_aba_informacoes(workbook, filepath: str) -> dict:
     """Lê a aba 'Informações da Avaliação' e extrai os dados necessários."""
     
     def get_valor(linha):
@@ -151,7 +165,7 @@ def _ler_aba_informacoes(workbook, filepath: str):
         "observacoes": observacoes
     }
     
-def _ler_abas_escalas(workbook, session: Session) -> list[dict]:
+def _ler_abas_escalas(workbook, session: Session) -> list[AplicacaoInputDTO]:
     """
     Itera pelas abas da planilha para identificar as escalas aplicadas e extrair as respostas dos itens.
     
@@ -176,10 +190,10 @@ def _ler_abas_escalas(workbook, session: Session) -> list[dict]:
             print(f"Aba '{nome_aba}' não tem respostas preenchidas. Ignorando esta aba.")
             continue
         
-        escalas_respostas.append({
-            "escala_nome": escala.nome,
-            "respostas": respostas
-        })
+        escalas_respostas.append(AplicacaoInputDTO(
+            id_escala=escala.id,
+            respostas=respostas
+        ))
 
     return escalas_respostas
 
@@ -198,7 +212,7 @@ def _match_escala(nome_aba: str, escalas:list) -> Escala | None:
             return escala
     return None
 
-def _ler_respostas_escalas(aba) -> dict[int, int]:
+def _ler_respostas_escalas(aba) -> list[RespostaInputDTO]:
     """    
     Lê as respostas de uma aba de escala.
 
@@ -206,11 +220,11 @@ def _ler_respostas_escalas(aba) -> dict[int, int]:
     a linha de TOTAL ou uma linha sem número de item na coluna A.
     Ignora linhas onde a pontuação (coluna C) não foi preenchida.
 
-    Retorna um dict {numero_item: pontuacao} apenas com itens preenchidos.
+    Retorna uma lista de RespostaInputDTO apenas com itens preenchidos.
     
     """
     
-    respostas = {}
+    respostas = []
     for row in aba.iter_rows(min_row=4, values_only=True):
         numero_item = row[0] # Coluna A
         pontuacao = row[2]   # Coluna C
@@ -223,7 +237,10 @@ def _ler_respostas_escalas(aba) -> dict[int, int]:
             continue
         
         try:
-            respostas[int(numero_item)] = int(float(pontuacao))
+            respostas.append(RespostaInputDTO(
+                numero_item=int(numero_item),
+                pontuacao=int(float(pontuacao))
+            ))
         except (ValueError, TypeError):
             print(f"Valor de pontuação inválido para item {numero_item} na aba '{aba.title}'. Ignorando este item.")
             continue
