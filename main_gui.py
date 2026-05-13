@@ -354,9 +354,11 @@ class App(ctk.CTk):
         try:
             with get_session() as session:
                 res = importar_planilha_avaliacao(session, self.caminho_arquivo_importacao)
+                print(res)  # Debug: Verificar resposta da importação 
 
                 if res["status"] == "ok":
-                    escalas = ", ".join(res.get("escalas_importadas", []))
+                    escalas = ", ".join(str(e) for e in res.get("escalas_importadas", []))
+                    print(f"Escalas importadas: {escalas}")  # Debug: Verificar escalas importadas
                     messagebox.showinfo(
                         "Sucesso",
                         f"Dados importados com sucesso!\n"

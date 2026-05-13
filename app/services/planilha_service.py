@@ -69,6 +69,8 @@ def importar_planilha_avaliacao(session: Session, caminho_arquivo: str) -> dict:
     # Carregar o arquivo XLSX usando OpenPyXL
     try:
         workbook = load_workbook(filename=caminho_arquivo, data_only=True)
+        
+        todas_escalas = obter_escalas(session)
     
         if ABA_INFO not in workbook.sheetnames:
             raise PlanilhaInvalidaError(f"Aba '{ABA_INFO}' não encontrada na planilha.")
@@ -93,13 +95,20 @@ def importar_planilha_avaliacao(session: Session, caminho_arquivo: str) -> dict:
             aplicacoes=escalas_respostas
         )
         avaliacao = registrar_avaliacao(session=session, payload=payload)
+        
+        escalas_nomes = []
+        for app in escalas_respostas:
+            escala = next((e for e in todas_escalas if e.id == app.id_escala), None)
+            if escala:
+                escalas_nomes.append(escala.nome)
+
             
         return {
             "status": "ok",
             "paciente": info["paciente_nome"],
             "data_avaliacao": info["data_avaliacao"].isoformat(),
             "avaliacao_id": avaliacao.id,
-            "escalas_importadas": [escala.id_escala for escala in escalas_respostas],
+            "escalas_importadas": escalas_nomes,
             "mensagem": None
         }
             
