@@ -2,7 +2,6 @@ import os
 import customtkinter as ctk
 from customtkinter import filedialog
 import tkinter.messagebox as messagebox
-from datetime import date
 from typing import Callable, Optional
 import logging
 
@@ -12,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import Base, engine, get_session, DB_PATH
 from app.models.paciente import Paciente
 from app.services.fisioterapeuta_service import listar_fisioterapeutas
+from app.services.relatorio_service import gerar_relatorio_pdf
 from app.services.template_service import iniciar_avaliacao_xlsx
 from app.services.planilha_service import importar_planilha_avaliacao
 from app.services.paciente_service import obter_pacientes_por_nome, perfil_completo, listar_pacientes, resumo_executivo
@@ -542,26 +542,46 @@ class App(ctk.CTk):
             
 
     def acao_exportar_pdf(self) -> None:
-        """Exporta perfil como PDF"""
+        """Abre diálogo para configurar e exportar relatório PDF"""
         if not self.current_patient_id:
             messagebox.showwarning("Aviso", "Nenhum paciente selecionado.")
             return
 
-        tipo = self.resumo_var.get()
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Exportar Relatório PDF")
+        dialog.geometry("380x220")
+        dialog.resizable(False, False)
+        dialog.grab_set()
 
-        try:
-            # TODO: Integrar com gerar_relatorio_pdf da relatorio_service
-            messagebox.showinfo(
-                "Exportar PDF",
-                f"Exportação de PDF\n"
-                f"Tipo: {tipo}\n"
-                f"Paciente ID: {self.current_patient_id}\n\n"
-                f"(Módulo de PDF será integrado em breve)"
-            )
-        except Exception as e:
-            messagebox.showerror("Erro", f"Falha ao exportar: {str(e)}")
-            
-            
+        ctk.CTkLabel(dialog, text="Tipo de Relatório", font=self.fonts["section"]).pack(pady=(25, 12))
+
+        tipo_var = ctk.StringVar(value="completo")
+        radio_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        radio_frame.pack(pady=5)
+        ctk.CTkRadioButton(radio_frame, text="Completo", variable=tipo_var, value="completo").pack(side="left", padx=20)
+        ctk.CTkRadioButton(radio_frame, text="Por Escala", variable=tipo_var, value="por_escala").pack(side="left", padx=20)
+
+        def _gerar():
+            try:
+                with get_session() as session:
+                    caminho = gerar_relatorio_pdf(session, self.current_patient_id, tipo_var.get())
+
+                dialog.destroy()
+                import platform
+                if platform.system() == "Windows":
+                    os.startfile(caminho)
+                elif platform.system() == "Darwin":
+                    os.system(f"open '{caminho}'")
+                else:
+                    os.system(f"xdg-open '{caminho}'")
+                messagebox.showinfo("Sucesso", f"Relatório gerado:\n{caminho}")
+
+            except ValueError as e:
+                messagebox.showwarning("Aviso", str(e), parent=dialog)
+            except Exception as e:
+                messagebox.showerror("Erro", f"Falha ao gerar PDF: {str(e)}", parent=dialog)
+
+        ctk.CTkButton(dialog, text="Gerar PDF", fg_color="darkred", command=_gerar).pack(pady=25)
 
     def acao_atualizar_visualizacao(self, escolha: str) -> None:
         """Troca a visualização do perfil conforme opção selecionada."""

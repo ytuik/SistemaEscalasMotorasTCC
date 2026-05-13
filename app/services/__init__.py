@@ -2,3 +2,4 @@ from .paciente_service import obter_paciente_por_id, obter_paciente_por_nome_dat
 from .avaliacao_service import registrar_avaliacao
 from .fisioterapeuta_service import obter_fisioterapeuta_por_crefito
 from .escalas_service import obter_escalas
+from .relatorio_service import gerar_relatorio_pdf
